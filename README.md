@@ -57,4 +57,4 @@ The ultimate trajectory of this framework is the physical lithographic fabricati
 
 We are not scaling consensus. We are scaling reality.
 
-**[Read The Complete Whitepaper Here]**
+**[Read The Complete Whitepaper Here](whitepaper/Tension_Is_What_You_Need.md)**
