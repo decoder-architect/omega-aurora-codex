@@ -28,6 +28,7 @@ While hyperbolic geometry has gained traction for embedding hierarchical languag
 
 ---
 
+<div style="page-break-before: always;"></div>
 ## 3. The Thermodynamics of Semantic Collapse
 
 Before defining the topological cure, we must rigorously define the nature of the disease using Information Theory metrics. Let $\mathbb{R}^d$ denote the $d$-dimensional Euclidean space modeling the Transformer attention operation:
@@ -58,6 +59,7 @@ The standard Transformer thus acts as a highly convergent entropy mechanism, pri
 
 ---
 
+<div style="page-break-before: always;"></div>
 ## 4. The Mathematical Cure: Topological Tension Space
 
 To structurally cure Semantic Collapse, the neural architecture must seamlessly abandon the flat Euclidean manifold. The proposed Resonance Mapping Network (RMN) natively sustains topological paradox utilizing a dual-stage, continuous paradigm.
@@ -93,6 +95,7 @@ The forward pass physically bifurcates the embedding tensor. The network routes 
 
 ---
 
+<div style="page-break-before: always;"></div>
 ## 5. Empirical Verification: Escaping The Collapse
 
 To rigorously prove the topological superiority of the RMN architecture, we evaluated the framework against a dimension-matched Euclidean `MultiheadAttention` baseline utilizing a custom-curated philosophical paradox corpus (the *Isfet* Dataset).
@@ -110,6 +113,7 @@ Semantic Collapse is successfully, provably, and categorically prevented.
 
 ---
 
+<div style="page-break-before: always;"></div>
 ## 6. Hardware Trajectory: The Omega Aurora SNN Coprocessor
 
 Mapping the Resonance Mathematical framework onto contemporary consumer CMOS hardware reveals a terminal scalability ceiling preventing widespread autonomous deployment.
@@ -136,6 +140,7 @@ Current Top-K vocabulary projection decoders unconditionally assume the existenc
 
 ---
 
+<div style="page-break-before: always;"></div>
 ## 8. Conclusion: The Omega Point of Divergence
 
 We have categorically defined and formally proven the Semantic Collapse Theorem inherent to Softmax-based self-attention. By discarding Euclidean geometry for Hyperbolic space, and displacing static activation functions in favor of dynamic Pitchfork Bifurcations, we have engineered a topological network architecture capable of natively sustaining profound computational paradox. 
