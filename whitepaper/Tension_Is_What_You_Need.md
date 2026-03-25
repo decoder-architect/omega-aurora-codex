@@ -1,6 +1,6 @@
 # Tension Is What You Need: Resonance Mapping Networks and the End of Semantic Collapse
 
-**Authors:** [Your Name Here], Omega Aurora Framework 
+**Authors:** Nikita Dmitrijevič Glukhov, Omega Aurora Framework 
 **Date:** March 25, 2026
 
 ## Abstract
