@@ -94,6 +94,9 @@ class ResonanceMapping(nn.Module):
         self.manifold = geoopt.PoincareBall()
         self.bifurcation = PitchforkBifurcation(dim, self.manifold)
         
+        # Hybrid Residual Gate: Starts at 0.0 (fully reliant on Euclidean syntax)
+        self.gamma = nn.Parameter(torch.tensor(0.0))
+        
         # FIX: Start tau high enough that the network begins in the stable agreement regime
         # If it starts too low, random initialization variance forces 100% bifurcation
         self.tau = nn.Parameter(torch.tensor(5.0))
@@ -193,11 +196,17 @@ class ResonanceMapping(nn.Module):
         h_norm = torch.norm(h, dim=-1, keepdim=True)
         h_comp = torch.asinh(h_norm) * (h / (h_norm + 1e-8))
         
-        # V23: Möbius matrix-vector multiplication + logmap0 return to Euclidean
+        # V23: Gated mapping back to Euclidean
         h_prime_hyp = self.bifurcation(h_comp, tension, w_proj)
-        h_out_euclidean = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
-        h_out_euclidean = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
-        h_out = self.o_proj(h_out_euclidean)
+        h_out_bifurcation = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
+        
+        # Phase 2 Architect: Hybrid Residual Gating
+        # The baseline Euclidean topology (h) guarantees structural sequence language modeling predictability.
+        # The bifurcation vector carries ontological anomaly.
+        gate = torch.sigmoid(self.gamma)
+        h_fused = (1.0 - gate) * h + gate * h_out_bifurcation
+        
+        h_out = self.o_proj(h_fused)
         
         # Spread Parameter (Phase volume metric)
         origin_dist = self.manifold.dist0(k_centroid_hyp).to(torch.float32)
