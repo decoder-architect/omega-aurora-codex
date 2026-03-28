@@ -136,9 +136,13 @@ def train_model(model, dataset, model_name, use_dissonance=False):
 
         for batch in loader:
             batch = batch.to(DEVICE)
-            # Shifted targets for next-token prediction
-            input_ids = batch[:, :-1]
-            targets = batch[:, 1:]
+            
+            # PHASE 3 ARCHITECT: THE ENCODER PIVOT
+            # We formally drop Autoregressive predicting. The sequence is evaluated globally
+            # and the machine must natively encode the global structure into its own reproduction, 
+            # stressing the topological gradient flow without sequence sliding masking.
+            input_ids = batch
+            targets = batch
 
             logits, state = model(input_ids)
             # Cross-Entropy Loss

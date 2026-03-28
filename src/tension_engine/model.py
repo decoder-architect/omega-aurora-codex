@@ -140,11 +140,19 @@ class ResonanceMapping(nn.Module):
             weights_probs = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
             h = torch.bmm(weights_probs, v)
             
-            k_centroid_hyp = self.differentiable_karcher_flow(k, weights_unnormalized)
-            noise = torch.randn_like(k_centroid_hyp) * 1e-5
-            k_centroid_hyp = self.manifold.projx(k_centroid_hyp + noise)
+            # PHASE 3 ARCHITECT: THE ENCODER PIVOT
+            # We discard the O(N^2) multi-centroid causal tracker. The machine acts as a Judge, 
+            # calculating exactly one Global Semantic Center of Gravity for the entire prompt sequence.
+            weights_global = torch.ones(batch_size, 1, seq_len, device=q_in.device)
+            k_centroid_hyp_global = self.differentiable_karcher_flow(k, weights_global)
+            noise = torch.randn_like(k_centroid_hyp_global) * 1e-5
+            k_centroid_hyp_global = self.manifold.projx(k_centroid_hyp_global + noise)
             
+            # Broadcast the single global center across the sequence dimension for distance calculation
+            k_centroid_hyp = k_centroid_hyp_global.expand(-1, seq_len, -1)
             k_centroid_hyp_expand = k_centroid_hyp.unsqueeze(2)
+            
+            # The tension array now measures every Key's deviation against ONE Absolute Truth
             centroid_to_keys_dist = self.manifold.dist(k_centroid_hyp_expand, k_hyp_expand)
             
             weights_normalized_var = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
