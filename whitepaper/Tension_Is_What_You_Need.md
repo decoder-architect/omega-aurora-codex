@@ -151,48 +151,32 @@ This pure topological projection natively preserves infinite parallel magnitude 
 
 ---
 
-## 5. Empirical Verification: Escaping The Collapse
+## 5. Empirical Validation (Architectural Proof of Concept)
 
-To rigorously prove the topological superiority of the RMN architecture, we evaluated the framework against a dimension-matched Euclidean `MultiheadAttention` baseline utilizing a custom-curated philosophical paradox corpus (the *Isfet* Dataset).
+### 5.1 The 6.5M Parameter Proof
+In the context of modern Large Language Models, a 6.5M parameter network evaluated on 170 samples is strictly a toy model. We explicitly do not claim to have "solved" sequence-to-sequence generation at scale, nor do we present competitive Perplexity metrics. The physical purpose of this empirical run is purely to validate the computational graph of the internal Resonance Mapping Engine.
 
-### 5.1 Dataset Construction & Methodology
-To computationally stress-test the structural limits, we constructed $N=100$ highly resonant epistemological oxymorons via an external generative boundary model. We instantiated both the Euclidean baseline ($dim=768$, `heads=8`) and the RMN utilizing identical Byte-Pair Encoding (BPE) embedding layers processing a concatenated friction string: `[Thesis] + [Antithesis]`.
+### 5.2 Mathematical Stability vs Optimization Constraints
+The PyTorch `AdamW` optimizer is structurally Euclidean. We confirm that while the forward pass (`ResonanceMapping.forward`) natively computes the ACT continuous-time Pitchfork Bifurcation using bounded $\mathbb{F}_{32}$ precision (`max_norm=4.0`), standard gradient backpropagation functionally fails (gradient coordinate explosion to `NaN`). This occurs because the optimization algorithm attempts to pull hyperbolic parameters linearly off the Poincaré disk. True empirical convergence requires transitioning from standard Deep Learning optimizers to specialized Riemannian scaling math (e.g., `geoopt.optim.RiemannianAdam`), establishing the core engineering bottleneck for scaling the logic.
 
-### 5.2 Quantitative Variance Results
-The evaluation yielded unequivocal empirical proof of Theorem 1 (Semantic Collapse). Evaluating the ontological paradox "Absolute Determinism vs Absolute Free Will":
-
-1. **Euclidean Attention Baseline:** The Softmax function forced a strict probability distribution that fatally flattened the contradiction. The output tensor exhibited a variance of **$\sigma^2 \approx 0.0039$**, demonstrating that the high-dimensional contextual signal was homogenized into low-information noise — consistent with the mutual information reduction predicted by Theorem 1.
-2. **Resonance Mapping Network:** The RMN projected the vectors into the Poincaré disk and detected maximum hyperbolic dissonance ($r > 0$). The AutoGrad engine automatically integrated the Pitchfork Bifurcation ODE along the learned contradiction axis (Section 4.3). The representation was displaced to the stable attractor at $x^* = +0.0056$ along the contradiction axis, while the opposing basin at $x^* = -0.0056$ remained accessible in the same phase space. The output preserved a geometric separation of **$1.5435$** between the two attractor basins, compared to the near-zero variance of the Euclidean baseline. 
-
-### 5.3 Empirical Training Convergence
-To validate the architecture's capacity for generalized language modeling, we conducted a bounded pre-training run on the complete 170-sample Isfet dataset using a standardized 6.5M parameter Euclidean baseline against the RMN ($d=128$, micro-batch $B=4$, learning rate $3 	imes 10^{-4}$). The networks were trained purely on Auto-Regressive next-token prediction via Cross-Entropy (CE).
-
-**Results:**
-1. **Baseline Euclidean Attention:** Converged smoothly from an initial CE Loss of 11.23 to a final CE Loss of **8.22** ($	ext{Perplexity} pprox 3729$), operating as a mathematically stable but conceptually flat sequence interpolator.
-2. **Resonance Mapping Network (Adaptive Singularity Topology):** Forcing standard grammatical token sequencing entirely through a hyperbolic Pitchfork ODE systematically destroys the local syntactic gradient mapping required for language modeling (empirically yielding complete token collapse at CE 39.23). However, utilizing a fixed parallel Euclidean bypass trivially neutralizes the mathematical rigor of the manifold. To unify predictive grammar with hyperdimensional reasoning, we engineered the **Adaptive Metric Tensor**, creating a true Singularity boundary: $w(r) = \max(0, \tanh(r / \tau))$. 
-
-When the local concept is epistemologically aligned ($r \le 0$), the topology remains flat Euclidean ($w = 0$), guaranteeing deterministic, low-loss sequence interpolation. Exactly when the tension breaches the event horizon $r > 0$, the network smoothly and differentiably curves into the non-Euclidean Poincaré subspace ($w > 0$), routing only the anomaly through the Pitchfork bifurcation. By flexing its geometry token-by-token, the Adaptive RMN achieves parity with the Euclidean statistical baseline (CE Loss **8.43**, $\text{Perplexity} \approx 4591$) while successfully maintaining the mechanical capacity for non-Euclidean macroscopic reasoning.
-
-Semantic Collapse is successfully, provably, and categorically prevented.
+### 5.3 Benchmarking the Adaptive Computation Time (ACT)
+The primary empirical success of this layer is the successful integration of the Thermodynamic Hearth. By monitoring the `hearth_cycles` tensor metric during forward propagation, we empirically confirm the network natively halts sequence progression to topologically compute paradoxes, dynamically routing gradients without breaking the static AutoGrad XLA compiler parameters.
 
 ---
 
 <div style="page-break-before: always;"></div>
 
-## 6. Computational Complexity: The Analytical Advantage
+## 6. Architecture & Implementation
 
-In standard continuous-time Neural ODE frameworks, simulating non-linear dynamical systems on synchronous GPU hardware requires computationally expensive numerical integration (e.g., Runge-Kutta or Euler methods). Such integration sweeps create a severe processing bottleneck for deep networks over long sequences.
+### 6.1 The Pitchfork Integration (RK4 ODE)
+The architecture physically executes continuous-time integration. The Supercritical Pitchfork Bifurcation ($\dot{x} = rx - x^3$) handles the paradoxical tension.
+When tension breaches the thermodynamic threshold ($r > \tau$), the tensor is projected onto the TPCA contradiction axis, reducing the 768-dimensional space to a discrete 1D scalar. The network evaluates the dynamics using a continuous-time 4-step explicit **Runge-Kutta (RK4)** numerical ODE solver, natively bounded to mathematical safety constants (`[-10, 2]`) to prevent polynomial stiffness explosions. The resulting bifurcated scalar is then geometrically re-embedded back into the multi-dimensional structure.
 
-### 6.1 The $O(1)$ Attractor Jump
-The Omega Aurora framework entirely bypasses this integration bottleneck. Because the Pitchfork Bifurcation ODE ($\frac{dx}{dt} = rx - x^3$) is analytically solvable for its equilibrium states, and because the representation is simply displaced directly to the "stable attractor" $x^*$, no step-wise simulation is required.
+### 6.2 Redefining Complexity: The Global Encoder Pivot
+Autoregressive (Decoder) attention matrices demand recalculating the semantic center of gravity for every token's causal sliding window, leading to an intractable $O(N^2 \cdot d_{model})$ Riemannian gradient descent overhead. We mathematically bypass this limitation by enforcing a **Bidirectional Encoder Paradigm**. The Fréchet Mean is calculated exactly once globally across the sequence structure, slashing the manifold complexity to an elegant $O(N \cdot d_{model})$ execution block. 
 
-As established in Section 4.3, the network jumps instantaneously to the gradient-stabilized analytical solution:
-$$ x^* = \begin{cases} 0 & \text{if } r \le 0 \\ \epsilon_{\text{Gumbel}} \cdot c \tanh\left(\frac{r}{c}\right) & \text{if } r > 0 \end{cases} $$
-
-Calculating this resting state requires exactly zero numerical ODE simulation loops. It is a highly parallelizable $O(1)$ tensor routing operation utilizing a hyperbolic tangent smoothing function, executing in microseconds on standard GPU arithmetic logic units (ALUs) while completely maintaining computational differentiability.
-
-### 6.2 Hardware Implications
-Because the analytical solution translates continuous dynamics into primitive, parallelizable tensor operations, the framework scales perfectly on contemporary Von Neumann GPU clusters without requiring specialized analog or neuromorphic hardware. The architectural shift to attractor dynamics maintains the $O(N^2)$ computational efficiency of standard Transformers while strictly dominating them in representational capacity across paradoxes.
+### 6.3 The Thermodynamic Hearth (Adaptive Computation Time)
+If $r > \tau$, the Pitchfork bifurcates the thought, but it does *not* immediately pass the vector downstream. The bifurcated tensor $h'$ automatically overrides the query projection step: $Q_{next} = W_q(h')$. The forward graph physically loops. The network re-evaluates the distances, the Fréchet Mean, and the semantic tension from this newly synthesized perspective. It loops dynamically until $r_{new} \le \tau$ or a hard structural cap is reached (`max_cycles=10`). This grants the network true **Adaptive Computation Time (ACT)**. To calculate adjoint gradients through this dynamic graph, explicit Neural ODE sensitivity methods must be compiled.
 
 ---
 
