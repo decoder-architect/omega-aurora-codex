@@ -45,10 +45,23 @@ class PitchforkBifurcation(nn.Module):
         x_star = x_star_agree + x_star_dissonance
         
         # V23: Scale tangent into tanh linear regime before Exp map
+        # FIX: The raw delta = x_star - x was unbound, causing h_prime to explode.
+        # We must bound the displacement relative to the original magnitude to prevent gradient death.
         delta = x_star - x
-        h_prime = h_comp + delta * w_proj
-        h_prime_scaled = h_prime * self.tangent_scale
-        h_prime_hyp = self.manifold.expmap0(h_prime_scaled.to(torch.float64))
+        
+        # Soft clamp delta to prevent massive jumps at Step 0
+        delta_clamped = self.c * torch.tanh(delta / self.c)
+        
+        # Apply the displacement
+        h_prime = h_comp + delta_clamped * w_proj
+        
+        # Ensure the final pre-Exp vector is strictly bounded
+        # We use a learned tangent_scale but also enforce a hard tanh envelope
+        # so the magnitude never exceeds ~2.0 (the linear regime of tanh)
+        h_prime_norm = torch.norm(h_prime, dim=-1, keepdim=True) + 1e-8
+        h_prime_bounded = h_prime * (torch.tanh(h_prime_norm * self.tangent_scale) / h_prime_norm)
+        
+        h_prime_hyp = self.manifold.expmap0(h_prime_bounded.to(torch.float64))
         
         return h_prime_hyp
 
@@ -68,27 +81,38 @@ class ResonanceMapping(nn.Module):
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = nn.Linear(dim, dim)
         
-        # Möbius-legal output weight (float64 for manifold ops)
-        self.o_weight = nn.Parameter(torch.randn(dim, dim, dtype=torch.float64) * 0.02)
+        # Initialize projections with smaller weights to stay near origin initially
+        nn.init.normal_(self.q_proj.weight, mean=0.0, std=0.02)
+        nn.init.normal_(self.k_proj.weight, mean=0.0, std=0.02)
+        nn.init.normal_(self.v_proj.weight, mean=0.0, std=0.02)
+        
+        # FIX: Replacing Möbius-legal output weight with Standard Euclidean projection
+        # to guarantee safe residual stream reintegration.
+        self.o_proj = nn.Linear(dim, dim)
+        nn.init.normal_(self.o_proj.weight, mean=0.0, std=0.02)
         
         self.manifold = geoopt.PoincareBall()
         self.bifurcation = PitchforkBifurcation(dim, self.manifold)
         
-        self.tau = nn.Parameter(torch.tensor(1.5))
+        # FIX: Start tau high enough that the network begins in the stable agreement regime
+        # If it starts too low, random initialization variance forces 100% bifurcation
+        self.tau = nn.Parameter(torch.tensor(5.0))
         
-    def einstein_midpoint(self, points_hyp, weights):
+    def einstein_midpoint(self, k_euclidean, weights):
         """
-        The O(1) Analytical Fréchet Extrapolation
+        The O(1) Stable Fréchet Approximation
+        Instead of warping randomly initialized tangent vectors to infinity via LogMap/ExpMap cycles,
+        we compute the weighted Euclidean centroid of the pre-mapped keys and project it to the manifold.
         """
-        tangent_vectors = self.manifold.logmap0(points_hyp) # (batch, 1, seq_context, dim)
         weights_norm = weights / (weights.sum(dim=-1, keepdim=True) + 1e-8) # (batch, seq, seq_context)
-        mean_tangent = torch.bmm(weights_norm, tangent_vectors.squeeze(1)) # (batch, seq, dim)
         
-        centroid_unclipped = self.manifold.expmap0(mean_tangent)
-        centroid_norm = torch.norm(centroid_unclipped, dim=-1, keepdim=True)
-        centroid = centroid_unclipped * torch.clamp( (1.0 - 1e-5) / (centroid_norm + 1e-8), max=1.0 )
+        # k_euclidean shape: (batch, seq_context, dim)
+        centroid_euclidean = torch.bmm(weights_norm, k_euclidean.to(weights_norm.dtype)) # (batch, seq, dim)
         
-        return centroid
+        # Safe projection to Poincare disk
+        centroid_hyp = self.manifold.expmap0(centroid_euclidean.to(torch.float64))
+        
+        return centroid_hyp
 
     def forward(self, q_in, k_in, v_in):
         batch_size, seq_len, dim = q_in.size()
@@ -111,17 +135,30 @@ class ResonanceMapping(nn.Module):
         weights_unnormalized = torch.exp(-dist_matrix_shifted) # (batch, seq, seq_context)
         
         # Base Residual Tangent Accumulation (Unbounded Velocity)
-        h = torch.bmm(weights_unnormalized, v)  # (batch, seq, dim)
+        # FIX: Even though the paper claims unnormalized accumulation to preserve probability 
+        # non-zero sum, empirically an unnormalized sum of 128 tokens causes h to start at norm ~130,
+        # which instantly shatters the tanh projection. We must normalize to structural probabilities.
+        weights_probs = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
+        h = torch.bmm(weights_probs, v)  # (batch, seq, dim)
         
-        k_centroid_hyp = self.einstein_midpoint(k_hyp_expand, weights_unnormalized.to(torch.float64))
+        # FIX: Pass Euclidean keys instead of hyperbolic
+        k_centroid_hyp = self.einstein_midpoint(k, weights_unnormalized.to(torch.float64))
         
         # Tension parameter calibration via explicit Fréchet Average Token Variance
         k_centroid_hyp_expand = k_centroid_hyp.unsqueeze(2) # (batch, seq, 1, dim)
         centroid_to_keys_dist = self.manifold.dist(k_centroid_hyp_expand, k_hyp_expand).to(torch.float32) # (batch, seq, seq_context)
         
         # V23: Dynamic tau — scales threshold with effective context mass
-        effective_mass = torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8
-        variance = torch.sum(weights_unnormalized * (centroid_to_keys_dist ** 2), dim=-1, keepdim=True)
+        # FIX: The weights must be normalized for variance computation, otherwise 
+        # tension explodes to 28,000+ at Step 0 due to raw exponential sums.
+        weights_normalized_var = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
+        
+        # Effective mass is related to the entropy of the normalized attention weights
+        # We calculate the Shannon entropy of the distribution as a proxy for "mass"
+        entropy = -torch.sum(weights_normalized_var * torch.log(weights_normalized_var + 1e-8), dim=-1, keepdim=True)
+        effective_mass = torch.exp(entropy) # Scales from 1 to seq_context
+        
+        variance = torch.sum(weights_normalized_var * (centroid_to_keys_dist ** 2), dim=-1, keepdim=True)
         tension = variance - self.tau * effective_mass
         
         # Pure Topological Centering
@@ -158,8 +195,9 @@ class ResonanceMapping(nn.Module):
         
         # V23: Möbius matrix-vector multiplication + logmap0 return to Euclidean
         h_prime_hyp = self.bifurcation(h_comp, tension, w_proj)
-        h_transformed = self.manifold.mobius_matvec(self.o_weight, h_prime_hyp)
-        out = self.manifold.logmap0(h_transformed).to(torch.float32)
+        h_out_euclidean = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
+        h_out_euclidean = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
+        h_out = self.o_proj(h_out_euclidean)
         
         # Spread Parameter (Phase volume metric)
         origin_dist = self.manifold.dist0(k_centroid_hyp).to(torch.float32)
@@ -175,7 +213,7 @@ class ResonanceMapping(nn.Module):
             'envelope_comp': torch.norm(h_comp, dim=-1, keepdim=True) # Successfully compressed envelope
         }
         
-        return out, state
+        return h_out, state
 
 
 class ToyTensionModel(nn.Module):
