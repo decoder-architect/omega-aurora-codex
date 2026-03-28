@@ -40,24 +40,24 @@ class PitchforkBifurcation(nn.Module):
         noise = torch.randn_like(x) * 1e-4
         x_integrated = torch.where(x == 0, noise, x)
         
-        # UNBOUNDED TENSION. TOUCH THE FLAME.
+        # THE HEARTH: CONTAINMENT FIELD
+        # The mathematical tension is structurally bound to safely fuel the ACT reasoning loop
+        # without destroying the AutoGrad manifold natively.
+        tension_clamped = torch.clamp(tension, min=-10.0, max=2.0)
+        
         for _ in range(ode_steps):
-            k1 = dt * (tension * x_integrated - x_integrated**3)
+            k1 = dt * (tension_clamped * x_integrated - x_integrated**3)
             x_k2 = x_integrated + k1/2
-            k2 = dt * (tension * x_k2 - x_k2**3)
+            k2 = dt * (tension_clamped * x_k2 - x_k2**3)
             x_k3 = x_integrated + k2/2
-            k3 = dt * (tension * x_k3 - x_k3**3)
+            k3 = dt * (tension_clamped * x_k3 - x_k3**3)
             x_k4 = x_integrated + k3
-            k4 = dt * (tension * x_k4 - x_k4**3)
+            k4 = dt * (tension_clamped * x_k4 - x_k4**3)
             
             x_integrated = x_integrated + (k1 + 2*k2 + 2*k3 + k4) / 6.0
             
         delta = x_integrated - x
         h_prime = h_comp + delta * w_proj
-        
-        # If the solver burned, halt the sequence correctly.
-        if torch.isnan(h_prime).any() or torch.isinf(h_prime).any():
-            raise ThermodynamicBurnError("Thermodynamic Halting Triggered. The sequence attempted to linearly average a hyper-dimensional paradox. The topology has burned.")
             
         h_prime_clipped = _clip_tangent(h_prime * self.tangent_scale)
         h_prime_hyp = self.manifold.expmap0(h_prime_clipped)
@@ -84,31 +84,20 @@ class ResonanceMapping(nn.Module):
         self.bifurcation = PitchforkBifurcation(dim, self.manifold)
         
         self.tau = nn.Parameter(torch.tensor(5.0))
+        self.max_burn_cycles = 10
         
     def differentiable_karcher_flow(self, k, weights, steps=3):
-        """
-        Phase 2 Architect: Differentiable Karcher Flow
-        Replaces O(1) Gyrocentroid drift. Explicitly solves Fréchet Mean via 3-step Riemannian SGD.
-        """
-        # (batch, seq, seq_context)
         weights_norm = weights / (weights.sum(dim=-1, keepdim=True) + 1e-8)
-        
-        # Initialize origin at standard Euclidean weighted average mapped to Poincare
-        mu_euclidean = torch.bmm(weights_norm, k) # (batch, seq, dim)
+        mu_euclidean = torch.bmm(weights_norm, k)
         mu_hyp = self.manifold.expmap0(_clip_tangent(mu_euclidean))
-        
         k_hyp = self.manifold.expmap0(_clip_tangent(k))
         
-        eta = 0.1 # V28: Stabilized Learning rate for float32 geodesic limits
+        eta = 0.1
         for _ in range(steps):
-            mu_expand = mu_hyp.unsqueeze(2) # (batch, seq, 1, dim)
-            k_expand = k_hyp.unsqueeze(1)   # (batch, 1, seq_context, dim)
-            
-            # Riemannian Gradient: sum(w_i * logmap(mu, x_i))
+            mu_expand = mu_hyp.unsqueeze(2)
+            k_expand = k_hyp.unsqueeze(1)   
             log_k = self.manifold.logmap(mu_expand, k_expand)
-            v_grad = torch.sum(weights_norm.unsqueeze(-1) * log_k, dim=2) # (batch, seq, dim)
-            
-            # Riemannian SGD step via exponential map transport
+            v_grad = torch.sum(weights_norm.unsqueeze(-1) * log_k, dim=2)
             v_grad_clipped = _clip_tangent(eta * v_grad)
             mu_hyp = self.manifold.expmap(mu_hyp, v_grad_clipped)
             
@@ -117,91 +106,149 @@ class ResonanceMapping(nn.Module):
     def forward(self, q_in, k_in, v_in):
         batch_size, seq_len, dim = q_in.size()
         
-        q = self.q_proj(q_in)
+        q_static = self.q_proj(q_in)
         k = self.k_proj(k_in)
         v = self.v_proj(v_in)
         
-        # Phase 1: Pure Float32 Hardening mapping
-        q_hyp = self.manifold.expmap0(_clip_tangent(q))
         k_hyp = self.manifold.expmap0(_clip_tangent(k))
-        
-        q_hyp_expand = q_hyp.unsqueeze(2)  
         k_hyp_expand = k_hyp.unsqueeze(1)  
-        dist_matrix = self.manifold.dist(q_hyp_expand, k_hyp_expand)
         
-        min_dist = torch.min(dist_matrix, dim=-1, keepdim=True)[0]
-        dist_matrix_shifted = dist_matrix - min_dist
-        weights_unnormalized = torch.exp(-dist_matrix_shifted)
+        q_current = q_static.clone()
         
-        weights_probs = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
-        h = torch.bmm(weights_probs, v)
+        # The Hearth ACT (Adaptive Computation Time) track
+        cycles_taken = torch.zeros(batch_size, seq_len, 1, device=q_in.device)
+        active_mask = torch.ones(batch_size, seq_len, 1, dtype=torch.bool, device=q_in.device)
+        cycle = 0
         
-        # Phase 2: Compute Fréchet Center iteratively
-        k_centroid_hyp = self.differentiable_karcher_flow(k, weights_unnormalized)
+        h_current = None
+        tension_current = None
+        w_proj_current = None
+        envelope_comp_current = None
+        centroid_to_keys_dist_current = None
+        k_centroid_hyp_current = None
         
-        # Float32 Geoopt AutoGrad safety: perturb centroid slightly so it never EXACTLY equals a key
-        # Identical points cause logmap gradients to hit 1/0 (NaN).
-        noise = torch.randn_like(k_centroid_hyp) * 1e-5
-        k_centroid_hyp = self.manifold.projx(k_centroid_hyp + noise)
-        
-        k_centroid_hyp_expand = k_centroid_hyp.unsqueeze(2)
-        centroid_to_keys_dist = self.manifold.dist(k_centroid_hyp_expand, k_hyp_expand)
-        
-        weights_normalized_var = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
-        entropy = -torch.sum(weights_normalized_var * torch.log(weights_normalized_var + 1e-8), dim=-1, keepdim=True)
-        effective_mass = torch.exp(entropy)
-        
-        variance = torch.sum(weights_normalized_var * (centroid_to_keys_dist ** 2), dim=-1, keepdim=True)
-        tension = variance - self.tau * effective_mass
-        
-        k_local_tangent = self.manifold.logmap(k_centroid_hyp_expand, k_hyp_expand)
-        weighted_k = k_local_tangent * torch.sqrt(weights_unnormalized.unsqueeze(-1) + 1e-8)
-        
-        v_rand = torch.randn(batch_size, seq_len, dim, 1, device=weighted_k.device, dtype=weighted_k.dtype)
-        v_rand = F.normalize(v_rand, dim=2, eps=1e-8)
-        
-        for _ in range(3):
-            proj = torch.matmul(weighted_k, v_rand)
-            v_rand = torch.matmul(weighted_k.transpose(2, 3), proj)
+        while active_mask.any() and cycle < self.max_burn_cycles:
+            # Re-evaluate Topology from current latent query
+            q_hyp = self.manifold.expmap0(_clip_tangent(q_current))
+            q_hyp_expand = q_hyp.unsqueeze(2)  
+            
+            dist_matrix = self.manifold.dist(q_hyp_expand, k_hyp_expand)
+            min_dist = torch.min(dist_matrix, dim=-1, keepdim=True)[0]
+            dist_matrix_shifted = dist_matrix - min_dist
+            weights_unnormalized = torch.exp(-dist_matrix_shifted)
+            
+            weights_probs = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
+            h = torch.bmm(weights_probs, v)
+            
+            k_centroid_hyp = self.differentiable_karcher_flow(k, weights_unnormalized)
+            noise = torch.randn_like(k_centroid_hyp) * 1e-5
+            k_centroid_hyp = self.manifold.projx(k_centroid_hyp + noise)
+            
+            k_centroid_hyp_expand = k_centroid_hyp.unsqueeze(2)
+            centroid_to_keys_dist = self.manifold.dist(k_centroid_hyp_expand, k_hyp_expand)
+            
+            weights_normalized_var = weights_unnormalized / (torch.sum(weights_unnormalized, dim=-1, keepdim=True) + 1e-8)
+            entropy = -torch.sum(weights_normalized_var * torch.log(weights_normalized_var + 1e-8), dim=-1, keepdim=True)
+            effective_mass = torch.exp(entropy)
+            
+            variance = torch.sum(weights_normalized_var * (centroid_to_keys_dist ** 2), dim=-1, keepdim=True)
+            tension = variance - self.tau * effective_mass
+            
+            if cycle == 0:
+                h_current = h.clone()
+                tension_current = tension.clone()
+            else:
+                h_current = torch.where(active_mask, h, h_current)
+                tension_current = torch.where(active_mask, tension, tension_current)
+            
+            k_local_tangent = self.manifold.logmap(k_centroid_hyp_expand, k_hyp_expand)
+            weighted_k = k_local_tangent * torch.sqrt(weights_unnormalized.unsqueeze(-1) + 1e-8)
+            
+            v_rand = torch.randn(batch_size, seq_len, dim, 1, device=weighted_k.device, dtype=weighted_k.dtype)
             v_rand = F.normalize(v_rand, dim=2, eps=1e-8)
             
-        w_proj_local = v_rand.squeeze(-1)
-        w_proj_global = self.manifold.transp0back(k_centroid_hyp, w_proj_local)
+            for _ in range(3):
+                proj = torch.matmul(weighted_k, v_rand)
+                v_rand = torch.matmul(weighted_k.transpose(2, 3), proj)
+                v_rand = F.normalize(v_rand, dim=2, eps=1e-8)
+                
+            w_proj_local = v_rand.squeeze(-1)
+            w_proj_global = self.manifold.transp0back(k_centroid_hyp, w_proj_local)
+            
+            q_tangent = self.manifold.logmap0(q_hyp)
+            k_centroid_tangent = self.manifold.logmap0(k_centroid_hyp)
+            fallback_w_proj = F.normalize(q_tangent - k_centroid_tangent, dim=-1, eps=1e-8)
+            
+            variance_mask = (variance > 1e-5).expand_as(w_proj_global)
+            w_proj = torch.where(variance_mask, w_proj_global, fallback_w_proj)
+            
+            if cycle == 0:
+                w_proj_current = w_proj.clone()
+                k_centroid_hyp_current = k_centroid_hyp.clone()
+            else:
+                w_proj_current = torch.where(active_mask.expand_as(w_proj), w_proj, w_proj_current)
+            
+            h_norm = torch.norm(h_current, dim=-1, keepdim=True)
+            h_comp = torch.asinh(h_norm) * (h_current / (h_norm + 1e-8))
+            
+            if cycle == 0:
+                envelope_comp_current = torch.norm(h_comp, dim=-1, keepdim=True)
+            
+            # Re-evaluate the active mask based on newly computed Tension limits
+            active_mask = (tension_current > self.tau)
+            
+            # Only execute Pitchfork Burn mapping for active paradoxical tokens
+            if active_mask.any():
+                h_prime_hyp = self.bifurcation(h_comp, tension_current, w_proj_current)
+                h_out_bifurcation = self.manifold.logmap0(h_prime_hyp)
+                
+                tau_safe = torch.clamp(self.tau, min=1e-3)
+                dynamic_gate = torch.clamp(torch.tanh(tension_current / tau_safe), min=0.0)
+                
+                h_fused = (1.0 - dynamic_gate) * h_current + dynamic_gate * h_out_bifurcation
+                
+                cycles_taken += active_mask.float()
+                
+                # Axiom 4: The Hearth (Dynamic Re-Projection)
+                # Overwrite the query perspective with the locally generated Bifurcated thought!
+                # By doing this, we run the iteration again under a new cognitive angle.
+                h_next = torch.where(active_mask.expand_as(h_fused), h_fused, h_current)
+                q_next = self.q_proj(h_next)
+                
+                q_current = torch.where(active_mask.expand_as(q_next), q_next, q_current)
+                h_current = h_next
+            
+            cycle += 1
+            
+        tau_safe_final = torch.clamp(self.tau, min=1e-3)
+        dynamic_gate_final = torch.clamp(torch.tanh(tension_current / tau_safe_final), min=0.0)
         
-        q_tangent = self.manifold.logmap0(q_hyp)
-        k_centroid_tangent = self.manifold.logmap0(k_centroid_hyp)
-        fallback_w_proj = F.normalize(q_tangent - k_centroid_tangent, dim=-1, eps=1e-8)
+        # If the paradox was solved during iteration, dynamic_gate_final will gracefully reflect it.
+        # If the paradox failed to resolve in 10 cycles, it returns the irreducible superposition.
+        h_norm_final = torch.norm(h_current, dim=-1, keepdim=True)
+        h_comp_final = torch.asinh(h_norm_final) * (h_current / (h_norm_final + 1e-8))
+        h_prime_hyp_final = self.bifurcation(h_comp_final, tension_current, w_proj_current)
+        h_out_bifurcation_final = self.manifold.logmap0(h_prime_hyp_final)
         
-        variance_mask = (variance > 1e-5).expand_as(w_proj_global)
-        w_proj = torch.where(variance_mask, w_proj_global, fallback_w_proj)
+        h_fused_final = (1.0 - dynamic_gate_final) * h_current + dynamic_gate_final * h_out_bifurcation_final
+        h_out = self.o_proj(h_fused_final)
         
-        h_norm = torch.norm(h, dim=-1, keepdim=True)
-        h_comp = torch.asinh(h_norm) * (h / (h_norm + 1e-8))
-        
-        # Yield to Runge-Kutta Integrator Phase 3
-        h_prime_hyp = self.bifurcation(h_comp, tension, w_proj)
-        h_out_bifurcation = self.manifold.logmap0(h_prime_hyp)
-        
-        tau_safe = torch.clamp(self.tau, min=1e-3)
-        dynamic_gate = torch.clamp(torch.tanh(tension / tau_safe), min=0.0)
-        h_fused = (1.0 - dynamic_gate) * h + dynamic_gate * h_out_bifurcation
-        
-        h_out = self.o_proj(h_fused)
-        
-        origin_dist = self.manifold.dist0(k_centroid_hyp)
+        origin_dist = self.manifold.dist0(k_centroid_hyp_current)
         
         state = {
             'variance_matrix': centroid_to_keys_dist ** 2,
-            'tension': tension,
+            'tension': tension_current,
             'tau': self.tau.item(),
-            'w_proj': w_proj,
+            'w_proj': w_proj_current,
             'origin_dist': origin_dist,
-            'x_in': torch.sum(h_comp * w_proj, dim=-1, keepdim=True),
-            'envelope': h_norm,
-            'envelope_comp': torch.norm(h_comp, dim=-1, keepdim=True)
+            'x_in': torch.sum(h_comp_final * w_proj_current, dim=-1, keepdim=True),
+            'envelope': h_norm_final,
+            'envelope_comp': envelope_comp_current,
+            'hearth_cycles': cycles_taken
         }
         
         return h_out, state
+
 
 class ToyTensionModel(nn.Module):
     def __init__(self, vocab_size=50257, d_model=768, depth=6):

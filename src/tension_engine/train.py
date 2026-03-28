@@ -120,7 +120,7 @@ def train_model(model, dataset, model_name, use_dissonance=False):
     history = {
         'epoch': [], 'loss_total': [], 'loss_ce': [], 'loss_dissonance': [],
         'perplexity': [], 'bifurcation_rate': [], 'mean_tension': [],
-        'time_per_epoch': []
+        'time_per_epoch': [], 'act_cycles': []
     }
 
     for epoch in range(EPOCHS):
@@ -131,6 +131,7 @@ def train_model(model, dataset, model_name, use_dissonance=False):
         epoch_dis = 0.0
         epoch_bif = 0.0
         epoch_tension = 0.0
+        epoch_cycles = 0.0
         n_batches = 0
 
         for batch in loader:
@@ -158,6 +159,8 @@ def train_model(model, dataset, model_name, use_dissonance=False):
                 bif_rate = (tension > 0).float().mean().item()
                 epoch_bif += bif_rate
                 epoch_tension += tension.mean().item()
+                if 'hearth_cycles' in state:
+                    epoch_cycles += state['hearth_cycles'].mean().item()
 
             total_loss = ce_loss + ALPHA_REG * dis_loss
 
@@ -179,6 +182,7 @@ def train_model(model, dataset, model_name, use_dissonance=False):
         avg_dis = epoch_dis / max(n_batches, 1)
         avg_bif = epoch_bif / max(n_batches, 1)
         avg_tension = epoch_tension / max(n_batches, 1)
+        avg_cycles = epoch_cycles / max(n_batches, 1)
         ppl = min(torch.exp(torch.tensor(avg_ce)).item(), 1e6)
 
         history['epoch'].append(epoch)
@@ -188,11 +192,10 @@ def train_model(model, dataset, model_name, use_dissonance=False):
         history['perplexity'].append(ppl)
         history['bifurcation_rate'].append(avg_bif)
         history['mean_tension'].append(avg_tension)
+        history['act_cycles'].append(avg_cycles)
         history['time_per_epoch'].append(epoch_time)
 
-        print(f"  Epoch {epoch+1:3d}/{EPOCHS} | Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
-              f"PPL: {ppl:.1f} | Bif%: {avg_bif*100:.1f}% | τ̄: {avg_tension:.3f} | "
-              f"Time: {epoch_time:.1f}s")
+        print(f"  Epoch {epoch+1:3d}/{EPOCHS} | Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | PPL: {ppl:.1f} | Bif%: {avg_bif*100:.1f}% | τ̄: {avg_tension:.3f} | ACT: {avg_cycles:.2f} | Time: {epoch_time:.1f}s")
 
     return history
 
