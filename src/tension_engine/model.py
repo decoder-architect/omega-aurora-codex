@@ -94,9 +94,6 @@ class ResonanceMapping(nn.Module):
         self.manifold = geoopt.PoincareBall()
         self.bifurcation = PitchforkBifurcation(dim, self.manifold)
         
-        # Hybrid Residual Gate: Starts at 0.0 (fully reliant on Euclidean syntax)
-        self.gamma = nn.Parameter(torch.tensor(0.0))
-        
         # FIX: Start tau high enough that the network begins in the stable agreement regime
         # If it starts too low, random initialization variance forces 100% bifurcation
         self.tau = nn.Parameter(torch.tensor(5.0))
@@ -200,11 +197,12 @@ class ResonanceMapping(nn.Module):
         h_prime_hyp = self.bifurcation(h_comp, tension, w_proj)
         h_out_bifurcation = self.manifold.logmap0(h_prime_hyp).to(torch.float32)
         
-        # Phase 2 Architect: Hybrid Residual Gating
-        # The baseline Euclidean topology (h) guarantees structural sequence language modeling predictability.
+        # Phase 2 Architect: Adaptive Metric Tensor (The Singularity)
+        # The baseline Euclidean topology (h) guarantees structural sequence predictability.
         # The bifurcation vector carries ontological anomaly.
-        gate = torch.sigmoid(self.gamma)
-        h_fused = (1.0 - gate) * h + gate * h_out_bifurcation
+        # RMN topology smoothly shifts from Euclidean (gamma=0) to Hyperbolic (gamma>0) at the tau event horizon.
+        dynamic_gate = torch.clamp(torch.tanh(tension / (self.tau + 1e-8)), min=0.0)
+        h_fused = (1.0 - dynamic_gate) * h + dynamic_gate * h_out_bifurcation
         
         h_out = self.o_proj(h_fused)
         
